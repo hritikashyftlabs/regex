@@ -15,53 +15,69 @@ function parsePattern(pattern, text, startPos = 0) {
     let textPos = startPos;
     
     while (patternPos < pattern.length) {
+        if (textPos > text.length) return -1;
+        
         const char = pattern[patternPos];
-        const nextChar = pattern[patternPos + 1];
+        const nextChar = patternPos + 1 < pattern.length ? pattern[patternPos + 1] : null;
         
         if (nextChar === '*') {
-            textPos = matchStar(
-                (t, p) => char === '.' ? matchDot(t, p) : 
-                         char === '[' ? matchCharClass(getCharClass(pattern, patternPos), t, p) :
-                         matchLiteral(char, t, p),
-                text, textPos
-            );
-            patternPos += 2;
-        } else if (nextChar === '+') {
-            let newPos = matchPlus(
-                (t, p) => char === '.' ? matchDot(t, p) : 
-                         char === '[' ? matchCharClass(getCharClass(pattern, patternPos), t, p) :
-                         matchLiteral(char, t, p),
-                text, textPos
-            );
-            if (newPos === -1) return -1;
-            textPos = newPos;
             if (char === '[') {
                 const charClass = getCharClass(pattern, patternPos);
-                patternPos += charClass.length;
+                const matchFn = (t, p) => matchCharClass(charClass, t, p);
+                textPos = matchStar(matchFn, text, textPos);
+                patternPos += charClass.length + 1;
             } else {
+                const matchFn = char === '.' ? 
+                    (t, p) => matchDot(t, p) : 
+                    (t, p) => matchLiteral(char, t, p);
+                textPos = matchStar(matchFn, text, textPos);
+                patternPos += 2;
+            }
+        } else if (nextChar === '+') {
+            if (char === '[') {
+                const charClass = getCharClass(pattern, patternPos);
+                const matchFn = (t, p) => matchCharClass(charClass, t, p);
+                const newPos = matchPlus(matchFn, text, textPos);
+                if (newPos === -1) return -1;
+                textPos = newPos;
+                patternPos += charClass.length + 1;
+            } else {
+                const matchFn = char === '.' ? 
+                    (t, p) => matchDot(t, p) : 
+                    (t, p) => matchLiteral(char, t, p);
+                const newPos = matchPlus(matchFn, text, textPos);
+                if (newPos === -1) return -1;
+                textPos = newPos;
                 patternPos += 2;
             }
         } else if (nextChar === '?') {
-            textPos = matchQuestion(
-                (t, p) => char === '.' ? matchDot(t, p) : 
-                         char === '[' ? matchCharClass(getCharClass(pattern, patternPos), t, p) :
-                         matchLiteral(char, t, p),
-                text, textPos
-            );
-            patternPos += 2;
+            if (char === '[') {
+                const charClass = getCharClass(pattern, patternPos);
+                const matchFn = (t, p) => matchCharClass(charClass, t, p);
+                textPos = matchQuestion(matchFn, text, textPos);
+                patternPos += charClass.length + 1;
+            } else {
+                const matchFn = char === '.' ? 
+                    (t, p) => matchDot(t, p) : 
+                    (t, p) => matchLiteral(char, t, p);
+                textPos = matchQuestion(matchFn, text, textPos);
+                patternPos += 2;
+            }
         } else if (char === '[') {
-            // Handle character class [abc]
             const charClass = getCharClass(pattern, patternPos);
-            textPos = matchCharClass(charClass, text, textPos);
-            if (textPos === -1) return -1;
+            const newPos = matchCharClass(charClass, text, textPos);
+            if (newPos === -1) return -1;
+            textPos = newPos;
             patternPos += charClass.length;
         } else if (char === '.') {
-            textPos = matchDot(text, textPos);
-            if (textPos === -1) return -1;
+            const newPos = matchDot(text, textPos);
+            if (newPos === -1) return -1;
+            textPos = newPos;
             patternPos++;
         } else {
-            textPos = matchLiteral(char, text, textPos);
-            if (textPos === -1) return -1;
+            const newPos = matchLiteral(char, text, textPos);
+            if (newPos === -1) return -1;
+            textPos = newPos;
             patternPos++;
         }
     }
@@ -82,8 +98,19 @@ function regexMatchWithAnchors(pattern, text) {
     if (pattern.startsWith('^') && pattern.endsWith('$')) {
         const innerPattern = pattern.slice(1, -1);
         return parsePattern(innerPattern, text, 0) === text.length;
+    } else if (pattern.startsWith('^')) {
+        const innerPattern = pattern.slice(1);
+        const result = parsePattern(innerPattern, text, 0);
+        return result !== -1;
+    } else if (pattern.endsWith('$')) {
+        const innerPattern = pattern.slice(0, -1);
+        for (let i = 0; i <= text.length; i++) {
+            const result = parsePattern(innerPattern, text, i);
+            if (result === text.length) return true;
+        }
+        return false;
     }
-    return undefined;
+    return regexMatch(pattern, text);
 }
 
 function matchLiteral(char, text, pos) {
@@ -122,10 +149,25 @@ function matchPlus(matchFn, text, pos) {
 function matchCharClass(charClass, text, pos) {
     if (pos >= text.length) return -1;
     
-    const chars = charClass.slice(1, -1); // Remove [ ]
+    const chars = charClass.slice(1, -1);
+    
+    if (chars.includes('-') && chars.length > 2) {
+        for (let i = 0; i < chars.length - 2; i++) {
+            if (chars[i+1] === '-') {
+                const start = chars[i].charCodeAt(0);
+                const end = chars[i+2].charCodeAt(0);
+                const current = text[pos].charCodeAt(0);
+                if (current >= start && current <= end) {
+                    return pos + 1;
+                }
+            }
+        }
+    }
+    
     if (chars.includes(text[pos])) {
         return pos + 1;
     }
+    
     return -1;
 }
 function matchQuestion(matchFn, text, pos) {
@@ -159,7 +201,7 @@ function startRegexTester() {
             }
             
             rl.question('Enter text to test: ', (text) => {
-                const result = regexMatch(pattern, text);
+                const result = regexMatchWithAnchors(pattern, text);
                 console.log(`\nResult: "${pattern}" ${result ? '✓ MATCHES' : '✗ NO MATCH'} "${text}"\n`);
                 askForInput();
             });
