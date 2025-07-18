@@ -267,8 +267,8 @@ describe('Regex Parser Functions', () => {
         });
         
         test('should handle partial anchor implementation', () => {
-            expect(regexMatchWithAnchors('^hello', 'hello world')).toBe(undefined);
-            expect(regexMatchWithAnchors('world$', 'hello world')).toBe(undefined);
+            expect(regexMatchWithAnchors('^hello', 'hello world')).toBe(true);
+            expect(regexMatchWithAnchors('world$', 'hello world')).toBe(true);
         });
     });
 });
